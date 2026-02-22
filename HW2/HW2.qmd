@@ -1,0 +1,286 @@
+---
+title: "DATA 402 HW 2"
+author: "Sophia Chung"
+format: 
+  html:
+    embed-resources: true
+execute:
+  echo: true
+---
+
+#### Section A: Theory
+
+![](/Users/sophiapchung/Desktop/DATA%20402/HW2/1.jpg)
+
+![](/Users/sophiapchung/Desktop/DATA%20402/HW2/2.jpg)
+
+#### Section B: Coding
+
+```{r}
+ames <- read.csv('/Users/sophiapchung/Desktop/DATA 402/HW2/AmesHousing.csv')
+```
+
+##### 1)
+
+```{r}
+ridge_estimator <- function(x, y, lambda) {
+  x <- as.double(x)
+  y <- as.double(y)
+  b1 <- ((1 + lambda) * mean(x * y) - mean(x) * mean(y)) /
+    (-mean(x)^2 + (1 + lambda) * mean(x^2) + (1 + lambda) * lambda)
+  b0 <- (mean(y) - b1 * mean(x)) / (1 + lambda)
+  return (c(b0, b1))
+}
+```
+
+##### 2)
+
+```{r}
+try_many_lambdas <- function(x, y, lambdas) {
+  df <- data.frame(matrix(nrow=0, ncol=3))
+  colnames(df) <- c('lambda', 'b0', 'b1')
+  for (i in 1:length(lambdas)) {
+    estimates <- ridge_estimator(x, y, lambdas[i])
+    new <- data.frame('lambda'=lambdas[i], 'b0'=estimates[1], 'b1'=estimates[2])
+    df <- rbind(df, new)
+  }
+  return (df)
+}
+```
+
+##### 3)
+
+```{r}
+tune_lambda_classic <- function(x, y, lambdas, metric) {
+  estimators <- try_many_lambdas(x, y, lambdas)
+  metrics <- c()
+  for (i in 1:length(lambdas)) {
+    pred <- estimators[i, 'b0'] + estimators[i, 'b1'] * x
+    if (metric == 'Adjusted R-squared') {
+      r2 <- 1 - sum((y - pred)^2)/sum((y - mean(y))^2)
+      
+      n <- length(y)
+      p <- 1 # number of independent vars
+      adj_r2 <- 1 - ((1 - r2) * (n - 1))/(n - p - 1)
+      metrics[i] <- adj_r2
+    }
+    else if (metric == 'AIC') {
+      linear_model <- lm(pred~x, data=data.frame(pred=pred, x=x))
+      metrics[i] <- AIC(linear_model)
+    }
+    else if (metric == 'BIC') {
+      linear_model <- lm(pred~x, data=data.frame(pred=pred, x=x))
+      metrics[i] <- BIC(linear_model)
+    }
+  }
+  df <- data.frame('lambda'=lambdas, 'metric'=metrics)
+  return (df)
+}
+```
+
+##### 4)
+
+```{r}
+tune_lambda_classic(ames$Lot.Area, ames$SalePrice, c(0.1, 10, 100), 'Adjusted R-squared')
+```
+
+```{r}
+tune_lambda_classic(ames$Lot.Area, ames$SalePrice, c(0.1, 10, 100), 'AIC')
+```
+
+```{r}
+tune_lambda_classic(ames$Lot.Area, ames$SalePrice, c(0.1, 10, 100), 'BIC')
+```
+
+We ideally want a high adjusted R-squared value and low AIC and BIC values (based on absolute value or magnitude). So, out of these three lambdas, 100 is the best choice. These are the corresponding estimators:
+
+```{r}
+ridge_estimator(ames$Lot.Area, ames$SalePrice, 100)
+```
+
+##### 5)
+
+```{r}
+tune_lambda_split <- function(train, test, lambdas, metric) {
+  estimators <- try_many_lambdas(train$Lot.Area, train$SalePrice, lambdas)
+  
+  metrics <- c()
+  for (i in 1:length(lambdas)) {
+    pred <- estimators[i, 'b0'] + estimators[i, 'b1'] * test$Lot.Area
+    y_test <- test$SalePrice
+    if (metric == 'R-squared') {
+      metrics[i] <- 1 - sum((y_test - pred)^2)/sum((y_test - mean(y_test))^2)
+    } 
+    else if (metric == 'MSE') {
+      metrics[i] <- mean((y_test - pred)^2)
+    } 
+    else if (metric == 'MAE') {
+      metrics[i] <- mean(abs(y_test - pred))
+    }
+  }
+  df <- data.frame('lambda'=lambdas, 'metric'=metrics)
+  return (df)
+}
+```
+
+##### 6)
+
+```{r}
+train_index <- sample(1:nrow(ames), 0.8 * nrow(ames))
+train <- ames[train_index,]
+test <- ames[-train_index,]
+tune_lambda_split(train, test, c(0.1, 10, 100), 'R-squared')
+```
+
+We ideally want a high R-squared value. The negative values indicate poor fit, so we want the only positive value in this case. So, out of these three lambdas, 0.1 is the best choice. These are the corresponding estimators:
+
+```{r}
+ridge_estimator(ames$Lot.Area, ames$SalePrice, 0.1)
+```
+
+##### 7)
+
+```{r}
+tune_lambda_cv <- function(data, lambdas, metric, splits) {
+  indices <- sample(1:nrow(ames))
+  folds <- split(indices, cut(indices, breaks=splits, labels=FALSE))
+  
+  metrics <- list()
+  for (j in 1:length(folds)) {
+    test <- data[folds[[j]],]
+    train <- data[-folds[[j]],]
+    metrics[[j]] <- tune_lambda_split(train, test, lambdas, metric)$metric
+  }
+  metrics_matrix <- do.call(cbind, metrics)
+  avg_metrics <- rowMeans(metrics_matrix)
+  df <- data.frame('lambda'=lambdas, 'metric'=avg_metrics)
+  return (df)
+}
+```
+
+##### 8)
+
+```{r}
+tune_lambda_cv(ames, c(0.1, 10, 100), 'R-squared', 5)
+```
+
+We ideally want a high R-squared value. Again, the negative values indicate poor fit, so we want the least negative value in this case. So, out of these three lambdas, 0.1 is the best choice. These are the corresponding estimators:
+
+```{r}
+ridge_estimator(ames$Lot.Area, ames$SalePrice, 0.1)
+```
+
+##### 9)
+
+```{r}
+tune_lambda_loo <- function(data, lambdas, metric) {
+  metrics <- c()
+  for (i in 1:length(lambdas)) {
+    pred <- c()
+    for (j in 1:nrow(data)) {
+      new_data <- data[-j,]
+      estimators <- try_many_lambdas(new_data$Lot.Area, new_data$SalePrice, lambdas[i])
+      pred[j] <- estimators$b0 + estimators$b1 * data[j, 'Lot.Area']
+    }
+    y <- data$SalePrice
+    if (metric == 'R-squared') {
+      metrics[i] <- 1 - sum((y - pred)^2)/sum((y - mean(y))^2)
+    } 
+    else if (metric == 'MSE') {
+      metrics[i] <- mean((y - pred)^2)
+    } 
+    else if (metric == 'MAE') {
+      metrics[i] <- mean(abs(y - pred))
+    }
+  }
+  
+  df <- data.frame('lambda'=lambdas, 'metric'=metrics)
+  return (df)
+}
+```
+
+##### 10)
+
+```{r}
+tune_lambda_loo(ames, c(0.1, 10, 100), 'R-squared')
+```
+
+We ideally want a high R-squared value. Again, the negative values indicate poor fit, so we want the least negative value in this case. So, out of these three lambdas, 0.1 is the best choice. These are the corresponding estimators:
+
+```{r}
+ridge_estimator(ames$Lot.Area, ames$SalePrice, 0.1)
+```
+------------------------------------------------------------------------
+
+#### Section C: Concepts
+
+##### 1)
+
+My Ridge $\beta_0$ would be equal to zero when $\bar{y} = \beta_1\bar{x}$. My Ridge $\beta_1$ would be equal to zero when $(1+\lambda)\bar{xy} = \bar{x}\bar{y}$.
+
+##### 2)
+
+My LASSO $\beta_0$ would be equal to zero when $\bar{y} - \beta_1\bar{x} = \lambda/2$. My LASSO $\beta_1$ would be equal to zero when $\bar{xy} - \bar{x}\bar{y} + \lambda/2\bar{x} - \lambda/2 = 0$.
+
+##### 3)
+
+```{r}
+x <- c(1, 2, 3, 4)
+y <- c(1, 2, 3, 14)
+```
+
+```{r}
+try_many_lambdas(x, y, c(0.1, 10, 100))
+```
+
+```{r}
+lasso_estimator <- function(x, y, lambda) {
+  x <- as.double(x)
+  y <- as.double(y)
+  b1 <- (mean(x*y) - mean(x) * mean(y) + lambda/2*mean(x) - lambda/2) / (-mean(x)^2 + mean(x^2))
+  b0 <- mean(y) - b1 * mean(x) - lambda/2
+  return (c(b0, b1))
+}
+```
+
+```{r}
+try_many_lambdas_lasso <- function(x, y, lambdas) {
+  df <- data.frame(matrix(nrow=0, ncol=3))
+  colnames(df) <- c('lambda', 'b0', 'b1')
+  for (i in 1:length(lambdas)) {
+    estimates <- lasso_estimator(x, y, lambdas[i])
+    new <- data.frame('lambda'=lambdas[i], 'b0'=estimates[1], 'b1'=estimates[2])
+    df <- rbind(df, new)
+  }
+  return (df)
+}
+```
+
+```{r}
+try_many_lambdas_lasso(ames$Lot.Area, ames$SalePrice, c(0.1, 10, 100))
+```
+
+##### 4)
+
+For Ridge regression, $\beta_0$ increases then decreases, and $\beta_1$ decreases as $\lambda$ increases. This is because larger coefficients are penalized more; so as $\lambda$ increases, the coefficients tend to get closer to zero. For LASSO regression, $\beta_0$ decreases and $\beta_1$ increases as $\lambda$ increases. Because $\beta_0$ is so large to begin with, increasing $\lambda$ brings $\beta_0$ closer to zero.
+
+##### 5)
+
+```{r}
+df <- rbind(try_many_lambdas(x, y, c(0.1, 10, 100)), try_many_lambdas_lasso(x, y, c(0.1, 10, 100)))
+mse <- 
+for (i in 1:nrow(df)) {
+  pred <- df[i, 'b0'] + df[i, 'b1'] * x
+  (sum(y - pred)^2)
+}
+```
+
+Using MSE, LASSO regression with $\lambda = 0.1$ best predicted the new value.
+
+##### 6)
+
+```{r}
+tune_lambda_cv(ames, c(0.1, 10, 100), 'R-squared', nrow(ames))
+```
+
+It breaks because my tune_lambda_split() function does not anticipate a test set of only one observation. In Leave-One-Out cross-validation, essentially each row is its testing set while the remaining data is the training set.

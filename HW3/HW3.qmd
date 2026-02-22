@@ -1,0 +1,214 @@
+---
+title: "DATA 402 HW 3"
+author: "Sophia Chung"
+format: 
+  html:
+    embed-resources: true
+execute:
+  echo: true
+---
+
+#### Section A: Math
+
+##### 1)
+
+![](/Users/sophiapchung/Desktop/DATA%20402/HW3/A1.jpg)
+
+##### 2)
+
+```{r}
+X <- matrix(c(1, 4700, 3, 1, 1050, 1, 1, 2200, 2), nrow=3, ncol=3, byrow=T)
+X
+```
+
+```{r}
+hat_matrix <- round(X %*% solve(t(X) %*% X) %*% t(X))
+hat_matrix
+```
+
+The hat matrix is the identity matrix because we can predict house prices exactly. We have three estimators, one for each of our three observations. So, our predictions for $y$ equal our observations of $y$.
+
+##### 3)
+
+![](/Users/sophiapchung/Desktop/DATA%20402/HW3/A3.jpg)
+
+##### 4)
+
+$\textbf{H} = \textbf{X}(\textbf{X}^T\textbf{X})^{-1}\textbf{X}^T$
+
+I would expect this equation to "break" when we try to find an inverse because in this model, we have more observations than estimators.
+
+##### 5)
+
+$\textbf{H} = \textbf{X}(\textbf{X}^T\textbf{X} + \lambda\textbf{I})^{-1}\textbf{X}^T$
+
+##### 6)
+
+$\textbf{H} = \textbf{X}(\textbf{X}^T\textbf{X})^{-1}\textbf{X}^T$
+
+The OLS hat matrix for this model predicting residuals is the same as my hat matrix in A2.
+
+##### 7)
+
+I would not recommend this strategy because it leaves too much room for error. The new model to predict the residuals has a random noise term itself. We are practically adding error upon error.
+
+------------------------------------------------------------------------
+
+#### Section B: Programming
+
+##### 1)
+
+```{r}
+cannabis <- read.csv('/Users/sophiapchung/Desktop/DATA 402/HW3/cannabis_full.csv')
+cannabis <- cannabis[complete.cases(cannabis[,6:69]),]
+```
+
+I did not standardize any data because all of the predictors are categorical.
+
+##### 2)
+
+```{r}
+beta_ols_estimates <- function(X, Y) {
+  betas <- solve(t(X) %*% X) %*% (t(X) %*% Y)
+  return (betas)
+}
+```
+
+```{r}
+X <- data.matrix(subset(cannabis, select=c(Type, Relaxed, Energetic)))
+X <- cbind(rep(1, nrow(cannabis)), X)
+Y <- data.matrix(subset(cannabis, select=c(Rating)))
+
+beta_ols_estimates(X, Y)
+```
+
+##### 3)
+
+```{r}
+beta_ridge_estimates <- function(X, Y, lambda) {
+  I <- diag(ncol(X))
+  betas <- solve(t(X) %*% X + lambda*I) %*% (t(X) %*% Y)
+  return (betas)
+}
+```
+
+##### 4)
+
+```{r}
+beta_ridge_estimates(X, Y, 1000)
+```
+
+The Ridge intercept is lower than the OLS intercept. The Ridge Type and Relaxed coefficients are higher than the OLS Type and Relaxed coefficients. The Ridge Energetic coefficient is lower than the OLS Energetic coefficient.
+
+##### 5)
+
+```{r}
+X <- data.matrix(subset(cannabis, select=-c(Strain, Rating, Effects, Flavor)))
+X <- cbind(rep(1, nrow(cannabis)), X)
+Y <- data.matrix(subset(cannabis, select=c(Rating)))
+
+beta_ridge_estimates(X, Y, 1000)
+```
+
+##### 6)
+
+```{r}
+tune_lambda_cv <- function(X, Y, metric, lambdas, splits) {
+  indices <- sample(1:nrow(X))
+  folds <- split(indices, cut(indices, breaks=splits, labels=FALSE))
+  
+  avg_metrics <- c()
+  for (i in 1:length(lambdas)) {
+    metrics <- c()
+    for (j in 1:splits) {
+      test_indices <- folds[[j]]
+      
+      X_test <- X[folds[[j]],]
+      y_test <- Y[folds[[j]],]
+      X_train <- X[-folds[[j]],]
+      y_train <- Y[-folds[[j]],]
+      
+      betas <- beta_ridge_estimates(X_train, y_train, lambdas[i])
+      pred <- X_test %*% betas
+      
+      if (metric == 'R-squared') {
+        r_squared <- 1 - sum((y_test - pred)^2)/sum((y_test - mean(y_test))^2)
+        metrics[j] <- r_squared
+      }
+      else if (metric == 'MSE') {
+        metrics[j] <- mean(y_test - pred^2)
+      }
+      else if (metric == 'MAE') {
+        metrics[j] <- mean(abs(y_test - pred))
+      }
+    }
+    avg_metrics[i] <- mean(metrics)
+  }
+  
+  if (metric == 'R-squared') {
+    best_lambda <- lambdas[which.max(avg_metrics)]
+  }
+  else {
+    best_lambda <- lambdas[which.min(avg_metrics)]
+  }
+  df <- data.frame('lambda'=lambdas, 'metric'=avg_metrics, 'best_lambda'=best_lambda)
+  return (df)
+}
+```
+
+##### 7)
+
+```{r}
+head(tune_lambda_cv(X, Y, 'R-squared', seq(1, 100, by=1), 10))
+```
+
+```{r}
+head(tune_lambda_cv(X, Y, 'MSE', seq(1, 100, by=1), 10))
+```
+
+```{r}
+head(tune_lambda_cv(X, Y, 'MAE', seq(1, 100, by=1), 10))
+```
+
+Using R-squared, the best $\lambda$ is 11. We will use this value in our final model. Using MSE, the best $\lambda$ is 1. Using MAE, the best $\lambda$ is 8.
+
+------------------------------------------------------------------------
+
+#### Section C: Concepts
+
+##### 1)
+
+To get the same results as I did in B5, I would have to plug in $\lambda*n$ or $2,305,000$ for alpha.
+
+##### 2)
+
+To get the same results as I did in B5, I would have to plug in $2\lambda*n$ or $4,610,000$ for penalty.
+
+##### 3)
+
+```{r}
+betas <- beta_ridge_estimates(X, Y, 11)
+betas <- betas[order(-betas),] 
+head(betas, 4)
+```
+
+The three largest coefficients are for Relaxed, Creative, and Talkative. Adjusting for other variables, the predicted rating for when a strain's effect is described as Relaxed is 0.5938 higher compared to when a strain's effect is not described as Relaxed, on average. Adjusting for other variables, the predicted rating for when a strain's effect is described as Creative is 0.4838 higher compared to when a strain's effect is not described as Creative, on average. Adjusting for other variables, the predicted rating for when a strain's effect is described as Talkative is 0.4729 higher compared to when a strain's effect is not described as Talkative, on average.
+
+##### 4)
+
+```{r}
+library(glmnet)
+lasso <- glmnet(X, Y, alpha=1, lambda=2*11*2305)
+# lasso <- glmnet(X, Y, alpha=1, lambda=2*11*2305, standardize=FALSE)
+coef(lasso)
+```
+
+All coefficients are 0, meaning that none of the keywords affect predicted rating. This is not the same case as in C3. In the previous question, we had Relaxed, Creative, and Talkative as variables with large coefficients.
+
+##### 5)
+
+It is important to standardize our predictors in the Ridge and LASSO model fitting approaches. With Ridge and LASSO, we do not want penalties to be unfairly applied to predictors of different scales.
+
+##### 6)
+
+In this data scenario, I prefer the Ridge approach. The LASSO approach did not reveal much useful information.
